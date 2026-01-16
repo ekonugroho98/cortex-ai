@@ -1,0 +1,9 @@
+  Ini adalah implementasi Claude Code CLI sebagai subprocess wrapper, bukan langsung call API.
+  Flow-nya:
+
+  1. FastAPI tidak langsung call Anthropic/Z.ai API
+  2. FastAPI spawn Claude Code CLI sebagai subprocess
+  3. Kirim prompt ke CLI via stdin
+  4. Baca response dari CLI via stdout
+  5. Parse dan extract SQL
+  6. Execute ke BigQuery

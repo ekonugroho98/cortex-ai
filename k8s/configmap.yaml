@@ -1,0 +1,21 @@
+# ConfigMap for BigQuery AI Service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bigquery-service-config
+  namespace: bigquery-ai-service
+data:
+  # FastAPI Configuration
+  FASTAPI_ENV: "production"
+  FASTAPI_HOST: "0.0.0.0"
+  FASTAPI_PORT: "8000"
+  API_V1_PREFIX: "/api/v1"
+
+  # BigQuery Configuration
+  BIGQUERY_LOCATION: "US"
+
+  # Logging
+  LOG_LEVEL: "INFO"
+
+  # CORS (update as needed)
+  CORS_ORIGINS: '["https://your-frontend-domain.com"]'

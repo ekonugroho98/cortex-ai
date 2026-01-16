@@ -1,0 +1,8 @@
+# Namespace for BigQuery AI Service
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bigquery-ai-service
+  labels:
+    name: bigquery-ai-service
+    app: bigquery-ai-service

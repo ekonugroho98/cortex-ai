@@ -1,0 +1,141 @@
+# Deployment for BigQuery AI Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bigquery-service
+  namespace: bigquery-ai-service
+  labels:
+    app: bigquery-service
+    version: v1
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: bigquery-service
+  template:
+    metadata:
+      labels:
+        app: bigquery-service
+        version: v1
+    spec:
+      containers:
+      - name: bigquery-service
+        image: bigquery-ai-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+
+        env:
+        # ConfigMap values
+        - name: FASTAPI_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: bigquery-service-config
+              key: FASTAPI_ENV
+        - name: FASTAPI_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: bigquery-service-config
+              key: FASTAPI_HOST
+        - name: FASTAPI_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: bigquery-service-config
+              key: FASTAPI_PORT
+        - name: API_V1_PREFIX
+          valueFrom:
+            configMapKeyRef:
+              name: bigquery-service-config
+              key: API_V1_PREFIX
+        - name: BIGQUERY_LOCATION
+          valueFrom:
+            configMapKeyRef:
+              name: bigquery-service-config
+              key: BIGQUERY_LOCATION
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: bigquery-service-config
+              key: LOG_LEVEL
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: bigquery-service-config
+              key: CORS_ORIGINS
+
+        # Secret values
+        - name: GCP_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: bigquery-service-secrets
+              key: GCP_PROJECT_ID
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: "/app/credentials/service-account.json"
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bigquery-service-secrets
+              key: API_KEY
+              optional: true
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bigquery-service-secrets
+              key: ANTHROPIC_API_KEY
+              optional: true
+
+        # Volume mounts
+        volumeMounts:
+        - name: gcp-credentials
+          mountPath: /app/credentials
+          readOnly: true
+        - name: logs
+          mountPath: /app/logs
+
+        # Resources
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+      # Volumes
+      volumes:
+      - name: gcp-credentials
+        secret:
+          secretName: bigquery-service-secrets
+          items:
+          - key: service-account.json
+            path: service-account.json
+      - name: logs
+        emptyDir: {}
+
+      # Restart policy
+      restartPolicy: Always

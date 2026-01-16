@@ -1,0 +1,43 @@
+# Docker Compose for Local Development
+version: '3.8'
+
+services:
+  bigquery-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bigquery-ai-service
+    ports:
+      - "${FASTAPI_PORT:-8000}:8000"
+    environment:
+      - FASTAPI_ENV=${FASTAPI_ENV:-development}
+      - FASTAPI_HOST=0.0.0.0
+      - FASTAPI_PORT=8000
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/service-account.json
+      - BIGQUERY_LOCATION=${BIGQUERY_LOCATION:-US}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:8080"]
+    volumes:
+      # Mount Google Cloud credentials
+      - ./credentials/service-account.json:/app/credentials/service-account.json:ro
+      # Mount logs directory (optional, for debugging)
+      - ./logs:/app/logs
+      # Mount .env file (optional, for local development)
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    networks:
+      - bigquery-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+networks:
+  bigquery-network:
+    driver: bridge
+
+volumes:
+  logs:
