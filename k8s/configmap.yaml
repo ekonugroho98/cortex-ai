@@ -1,21 +1,16 @@
-# ConfigMap for BigQuery AI Service
+# ConfigMap for CortexAI
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: bigquery-service-config
-  namespace: bigquery-ai-service
+  name: cortex-ai-config
+  namespace: cortex-ai
 data:
-  # FastAPI Configuration
+  # Application Configuration
+  GCP_PROJECT_ID: "gen-lang-client-0716506049"
   FASTAPI_ENV: "production"
   FASTAPI_HOST: "0.0.0.0"
   FASTAPI_PORT: "8000"
   API_V1_PREFIX: "/api/v1"
-
-  # BigQuery Configuration
   BIGQUERY_LOCATION: "US"
-
-  # Logging
   LOG_LEVEL: "INFO"
-
-  # CORS (update as needed)
-  CORS_ORIGINS: '["https://your-frontend-domain.com"]'
+  CORS_ORIGINS: '["*"]'

@@ -1,11 +1,11 @@
-# Deployment for BigQuery AI Service
+# Deployment for CortexAI
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: bigquery-service
-  namespace: bigquery-ai-service
+  name: cortex-ai
+  namespace: cortex-ai
   labels:
-    app: bigquery-service
+    app: cortex-ai
     version: v1
 spec:
   replicas: 2
@@ -16,17 +16,17 @@ spec:
       maxUnavailable: 0
   selector:
     matchLabels:
-      app: bigquery-service
+      app: cortex-ai
   template:
     metadata:
       labels:
-        app: bigquery-service
+        app: cortex-ai
         version: v1
     spec:
       containers:
-      - name: bigquery-service
-        image: bigquery-ai-service:latest
-        imagePullPolicy: IfNotPresent
+      - name: cortex-ai
+        image: IMAGE_PLACEHOLDER
+        imagePullPolicy: Always
         ports:
         - name: http
           containerPort: 8000
@@ -35,69 +35,43 @@ spec:
         env:
         # ConfigMap values
         - name: FASTAPI_ENV
-          valueFrom:
-            configMapKeyRef:
-              name: bigquery-service-config
-              key: FASTAPI_ENV
+          value: "production"
         - name: FASTAPI_HOST
-          valueFrom:
-            configMapKeyRef:
-              name: bigquery-service-config
-              key: FASTAPI_HOST
+          value: "0.0.0.0"
         - name: FASTAPI_PORT
-          valueFrom:
-            configMapKeyRef:
-              name: bigquery-service-config
-              key: FASTAPI_PORT
+          value: "8000"
         - name: API_V1_PREFIX
-          valueFrom:
-            configMapKeyRef:
-              name: bigquery-service-config
-              key: API_V1_PREFIX
+          value: "/api/v1"
         - name: BIGQUERY_LOCATION
-          valueFrom:
-            configMapKeyRef:
-              name: bigquery-service-config
-              key: BIGQUERY_LOCATION
+          value: "US"
         - name: LOG_LEVEL
-          valueFrom:
-            configMapKeyRef:
-              name: bigquery-service-config
-              key: LOG_LEVEL
+          value: "INFO"
         - name: CORS_ORIGINS
-          valueFrom:
-            configMapKeyRef:
-              name: bigquery-service-config
-              key: CORS_ORIGINS
+          value: '["*"]'
 
-        # Secret values
+        # Project ID from ConfigMap
         - name: GCP_PROJECT_ID
           valueFrom:
-            secretKeyRef:
-              name: bigquery-service-secrets
+            configMapKeyRef:
+              name: cortex-ai-config
               key: GCP_PROJECT_ID
+
+        # Secret values
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: "/app/credentials/service-account.json"
-        - name: API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: bigquery-service-secrets
-              key: API_KEY
-              optional: true
         - name: ANTHROPIC_API_KEY
           valueFrom:
             secretKeyRef:
-              name: bigquery-service-secrets
+              name: cortex-ai-secrets
               key: ANTHROPIC_API_KEY
-              optional: true
+        - name: CLAUDE_WORKSPACE_PATH
+          value: "/tmp/claude-workspace"
 
         # Volume mounts
         volumeMounts:
         - name: gcp-credentials
           mountPath: /app/credentials
           readOnly: true
-        - name: logs
-          mountPath: /app/logs
 
         # Resources
         resources:
@@ -113,7 +87,7 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
@@ -121,7 +95,7 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 5
+          initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
@@ -130,12 +104,10 @@ spec:
       volumes:
       - name: gcp-credentials
         secret:
-          secretName: bigquery-service-secrets
+          secretName: cortex-ai-secrets
           items:
-          - key: service-account.json
+          - key: GOOGLE_APPLICATION_CREDENTIALS
             path: service-account.json
-      - name: logs
-        emptyDir: {}
 
       # Restart policy
       restartPolicy: Always

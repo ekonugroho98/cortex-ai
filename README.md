@@ -2,6 +2,11 @@
 
 **CortexAI** is an enterprise-grade AI platform for data-driven decision making and operational intelligence. It connects to multiple data sources and uses AI to investigate issues, analyze patterns, and provide actionable insights.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com)
+[![Cloud Run](https://img.shields.io/badge/Cloud%20Run-Ready-blue.svg)](https://cloud.google.com/run)
+
 ## 🎯 Overview
 
 CortexAI serves as the central intelligence hub for enterprises, enabling:
@@ -11,6 +16,7 @@ CortexAI serves as the central intelligence hub for enterprises, enabling:
 - 🔍 **Issue Resolution** - Rapid root cause analysis for technical and business issues
 - 📈 **Business Intelligence** - Data-driven insights for management decisions
 - ⚡ **Operational Excellence** - Monitor and optimize enterprise operations
+- ☁️ **Cloud Native** - Ready for deployment on GCP (Cloud Run, GKE)
 
 ## 🏗️ Architecture
 

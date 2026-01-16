@@ -1,17 +1,24 @@
-# Service for BigQuery AI Service
+# Service for CortexAI
 apiVersion: v1
 kind: Service
 metadata:
-  name: bigquery-service
-  namespace: bigquery-ai-service
+  name: cortex-ai
+  namespace: cortex-ai
   labels:
-    app: bigquery-service
+    app: cortex-ai
+  annotations:
+    # Cloud Run-compatible annotations (if using Cloud Run on GKE)
+    beta.cloud.google.com/backend-config: '{"default": "cortex-ai-config"}'
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   ports:
   - port: 80
     targetPort: 8000
     protocol: TCP
     name: http
   selector:
-    app: bigquery-service
+    app: cortex-ai
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
