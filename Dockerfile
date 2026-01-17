@@ -53,6 +53,10 @@ COPY --from=builder /install /usr/local
 COPY ./app ./app
 COPY .env.example .env.example
 
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Create logs directory
 RUN mkdir -p /app/logs && chown -R appuser:appuser /app
 
@@ -66,5 +70,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# Run the application (use shell form to expand $PORT env var)
-CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
+# Use entrypoint script to properly handle environment variables
+ENTRYPOINT ["docker-entrypoint.sh"]
