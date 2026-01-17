@@ -22,8 +22,23 @@ echo "=================================="
 
 # Check Claude Code CLI
 echo "Checking Claude Code CLI..."
+
+# Add npm global bin to PATH
+export PATH="/usr/local/bin:/usr/bin:/bin:/node_modules/.bin:${PATH}"
+
+echo "PATH: ${PATH}"
+
+# List npm global binaries
+echo "NPM global binaries:"
+ls -la /usr/local/bin/claude* 2>/dev/null || echo "  No claude binaries found in /usr/local/bin"
+ls -la /node_modules/.bin/claude* 2>/dev/null || echo "  No claude binaries found in /node_modules/.bin"
+
+# Try to find claude-code
 if command -v claude-code &> /dev/null; then
     echo "✓ Claude Code CLI installed: $(claude-code --version 2>&1 || echo 'version unknown')"
+elif [ -f "/usr/local/bin/claude-code" ]; then
+    echo "✓ Claude Code CLI found at /usr/local/bin/claude-code"
+    /usr/local/bin/claude-code --version 2>&1 || echo "  (version check failed)"
 else
     echo "⚠ Warning: Claude Code CLI not found in PATH"
     echo "  This may cause issues with /api/v1/query-agent endpoint"

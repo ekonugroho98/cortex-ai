@@ -52,12 +52,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code && \
-    npm cache clean --force
-
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Install Claude Code CLI globally (as root, then make accessible to appuser)
+RUN npm install -g @anthropic-ai/claude-code && \
+    npm cache clean --force && \
+    chmod +x /usr/local/bin/claude-code 2>/dev/null || true
 
 # Set working directory
 WORKDIR /app
