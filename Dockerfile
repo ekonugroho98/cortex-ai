@@ -38,10 +38,13 @@ ENV PYTHONUNBUFFERED=1 \
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Install runtime dependencies (include libgomp for BigQuery)
+# Install runtime dependencies (include libraries for Google Cloud)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libgomp1 \
+    libc6 \
+    libgcc1 \
+    libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
