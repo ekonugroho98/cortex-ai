@@ -131,7 +131,8 @@ gcloud run deploy ${SERVICE_NAME} \
     --timeout=300s \
     --concurrency=10 \
     --set-env-vars=FASTAPI_ENV=production,GCP_PROJECT_ID=${PROJECT_ID},BIGQUERY_LOCATION=US,API_V1_PREFIX=/api/v1,LOG_LEVEL=INFO \
-    --set-secrets=ANTHROPIC_API_KEY=cortex-ai-anthropic-key:latest,GOOGLE_APPLICATION_CREDENTIALS=cortex-ai-sa-key:latest
+    --set-secrets=ANTHROPIC_API_KEY=cortex-ai-anthropic-key:latest \
+    --service-account="${PROJECT_ID}@appspot.gserviceaccount.com"
 
 echo -e "${GREEN}✓ Deployment successful${NC}"
 echo ""

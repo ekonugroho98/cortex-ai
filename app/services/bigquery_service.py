@@ -18,9 +18,11 @@ class BigQueryService:
     def __init__(self):
         """Initialize BigQuery client"""
         try:
+            # In Cloud Run, uses default service account automatically
+            # In local dev, uses GOOGLE_APPLICATION_CREDENTIALS from .env
             self.client = Client(
                 project=settings.gcp_project_id,
-                credentials=None  # Uses GOOGLE_APPLICATION_CREDENTIALS env
+                credentials=None  # Uses Application Default Credentials (ADC)
             )
             self.project_id = settings.gcp_project_id
             logger.info(f"BigQuery client initialized for project: {self.project_id}")
