@@ -303,9 +303,12 @@ WHERE _PARTITIONDATE = '2024-01-15'
                 script_path = script_file.name
 
                 # Write bash script that calls claude
+                # Use heredoc to properly handle special characters in prompt
                 script_content = f"""#!/bin/bash
 cd "{workspace}"
-echo "{full_prompt}" | claude --print 2>&1
+cat <<'EOF' | claude --print 2>&1
+{full_prompt}
+EOF
 """
                 script_file.write(script_content)
                 script_file.flush()
