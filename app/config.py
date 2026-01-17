@@ -80,8 +80,8 @@ class Settings(BaseSettings):
         description="Anthropic API key for Claude Code CLI"
     )
     claude_workspace_path: str = Field(
-        default="/app/claude-workspace",
-        description="Path to Claude Code CLI workspace"
+        default="/tmp/claude-workspace",
+        description="Path to Claude Code CLI workspace (use /tmp for Cloud Run)"
     )
 
     @field_validator("cors_origins", mode="before")
