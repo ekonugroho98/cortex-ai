@@ -25,14 +25,16 @@ class ClaudeCLIService:
         if not self.claude_executable:
             logger.warning("Claude Code CLI not found in PATH")
 
-        # Workspace directory for Claude CLI
-        self.workspace_path = Path(settings.claude_workspace_path)
+        # Workspace directory for Claude CLI (use absolute path)
+        workspace_setting = settings.claude_workspace_path
+        self.workspace_path = Path(workspace_setting).resolve()
         self.workspace_path.mkdir(parents=True, exist_ok=True)
 
         # Claude settings directory
         self.claude_settings_dir = Path.home() / ".claude"
 
         logger.info(f"Claude CLI workspace: {self.workspace_path}")
+        logger.info(f"Claude CLI workspace (absolute): {self.workspace_path.absolute()}")
 
     def is_available(self) -> bool:
         """Check if Claude CLI is available"""
@@ -48,12 +50,14 @@ class ClaudeCLIService:
             bigquery_context: BigQuery schema and context information
 
         Returns:
-            Path to workspace directory
+            Absolute path to workspace directory
         """
         try:
-            # Create workspace structure
-            workspace = self.workspace_path / "bigquery_context"
+            # Create workspace structure (ensure absolute path)
+            workspace = (self.workspace_path / "bigquery_context").resolve()
             workspace.mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"Setting up workspace at: {workspace}")
 
             # Write BigQuery schema documentation
             schema_md = workspace / "schemas.md"
