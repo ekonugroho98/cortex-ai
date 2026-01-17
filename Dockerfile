@@ -7,24 +7,11 @@ FROM python:3.11-slim AS builder
 # Set working directory
 WORKDIR /build
 
-# Install system dependencies (include Node.js for Claude Code CLI)
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
-    curl \
-    gnupg \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 20.x (required for Claude Code CLI)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Claude Code CLI globally via npm
-RUN npm install -g @anthropic-ai/claude-code
-
-# Verify installation
-RUN claude-code --version || echo "Claude Code CLI installed"
 
 # Copy requirements
 COPY requirements.txt .
@@ -49,7 +36,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     NODE_ENV=production
 
-# Install runtime dependencies and Node.js
+# Install ALL runtime dependencies including Node.js
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libgomp1 \
@@ -57,22 +44,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgcc1 \
     libstdc++6 \
     gnupg \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20.x in runtime (required for Claude Code CLI)
+# Install Node.js 20.x (required for Claude Code CLI)
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code && \
+    npm cache clean --force
 
 # Set working directory
 WORKDIR /app
 
 # Copy Python dependencies from builder
 COPY --from=builder /install /usr/local
-
-# Copy Node.js and npm packages from builder
-COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY ./app ./app
@@ -82,8 +70,12 @@ COPY .env.example .env.example
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Create logs directory
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app
+# Create logs directory and set permissions
+RUN mkdir -p /app/logs && \
+    chown -R appuser:appuser /app
+
+# Add Node.js and npm to PATH for non-root user
+ENV PATH="/usr/local/bin:/usr/bin:/bin:/node_modules/.bin:${PATH}"
 
 # Switch to non-root user
 USER appuser
