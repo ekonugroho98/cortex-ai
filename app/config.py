@@ -97,11 +97,15 @@ class Settings(BaseSettings):
     @classmethod
     def validate_credentials(cls, v):
         """Validate Google Cloud credentials path"""
-        if not v:
-            raise ValueError(
-                "GOOGLE_APPLICATION_CREDENTIALS must be set. "
-                "Provide path to service account JSON file."
-            )
+        # In Cloud Run, credentials are optional (uses default service account)
+        # Only validate in local development
+        import os
+        if os.getenv("FASTAPI_ENV", "development") == "development":
+            if not v:
+                raise ValueError(
+                    "GOOGLE_APPLICATION_CREDENTIALS must be set in development. "
+                    "Provide path to service account JSON file."
+                )
         return v
 
     @field_validator("gcp_project_id")
