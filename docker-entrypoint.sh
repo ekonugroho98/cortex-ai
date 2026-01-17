@@ -16,9 +16,21 @@ echo "FASTAPI_ENV=${FASTAPI_ENV}"
 echo "PYTHONUNBUFFERED=${PYTHONUNBUFFERED}"
 echo "Working directory: $(pwd)"
 echo "Python version: $(python --version)"
+echo "Node.js version: $(node --version 2>/dev/null || echo 'not installed')"
+echo "npm version: $(npm --version 2>/dev/null || echo 'not installed')"
 echo "=================================="
 
+# Check Claude Code CLI
+echo "Checking Claude Code CLI..."
+if command -v claude-code &> /dev/null; then
+    echo "✓ Claude Code CLI installed: $(claude-code --version 2>&1 || echo 'version unknown')"
+else
+    echo "⚠ Warning: Claude Code CLI not found in PATH"
+    echo "  This may cause issues with /api/v1/query-agent endpoint"
+fi
+
 # List installed packages for debugging
+echo ""
 echo "Checking critical dependencies..."
 python -c "
 import sys

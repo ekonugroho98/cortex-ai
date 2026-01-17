@@ -7,11 +7,24 @@ FROM python:3.11-slim AS builder
 # Set working directory
 WORKDIR /build
 
-# Install system dependencies
+# Install system dependencies (include Node.js for Claude Code CLI)
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
+    curl \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20.x (required for Claude Code CLI)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally via npm
+RUN npm install -g @anthropic-ai/claude-code
+
+# Verify installation
+RUN claude-code --version || echo "Claude Code CLI installed"
 
 # Copy requirements
 COPY requirements.txt .
@@ -33,25 +46,33 @@ LABEL version="1.0.0"
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    NODE_ENV=production
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-
-# Install runtime dependencies (include libraries for Google Cloud)
+# Install runtime dependencies and Node.js
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libgomp1 \
     libc6 \
     libgcc1 \
     libstdc++6 \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20.x in runtime (required for Claude Code CLI)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
 # Copy Python dependencies from builder
 COPY --from=builder /install /usr/local
+
+# Copy Node.js and npm packages from builder
+COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY ./app ./app
