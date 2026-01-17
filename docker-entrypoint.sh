@@ -68,6 +68,15 @@ python -c "import app.main; print('✓ app.main imported successfully')" 2>&1 ||
     exit 1
 }
 
+# Create workspace directory for Claude Code CLI (if needed)
+if [ -n "$ANTHROPIC_API_KEY" ]; then
+    echo ""
+    echo "Setting up Claude Code CLI workspace..."
+    export HOME="/tmp"
+    mkdir -p /tmp/.claude
+    echo "✓ Workspace created at /tmp/.claude"
+fi
+
 echo ""
 echo "Starting uvicorn server on 0.0.0.0:${PORT}..."
 # Execute uvicorn with the resolved PORT variable
