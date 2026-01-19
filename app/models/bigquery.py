@@ -1,9 +1,31 @@
 """
 Pydantic models for BigQuery operations
 """
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Dict, Any, Generic, TypeVar
 from datetime import datetime
+import re
+
+
+# ============== Pagination Models ==============
+
+T = TypeVar('T')
+
+
+class PaginationMetadata(BaseModel):
+    """Pagination metadata"""
+    page: int = Field(..., description="Current page number (1-indexed)", ge=1)
+    page_size: int = Field(..., description="Number of items per page", ge=1, le=1000)
+    total: int = Field(..., description="Total number of items", ge=0)
+    total_pages: int = Field(..., description="Total number of pages", ge=0)
+    has_next: bool = Field(..., description="Whether there is a next page")
+    has_prev: bool = Field(..., description="Whether there is a previous page")
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response model"""
+    data: List[T] = Field(..., description="List of items for current page")
+    pagination: PaginationMetadata = Field(..., description="Pagination metadata")
 
 
 # ============== Dataset Models ==============
@@ -64,12 +86,35 @@ class TablesListResponse(BaseModel):
 
 class DirectQueryRequest(BaseModel):
     """Request model for direct SQL query"""
-    sql: str = Field(..., description="SQL query to execute", min_length=1)
+    sql: str = Field(..., description="SQL query to execute", min_length=1, max_length=10000)
     project_id: Optional[str] = Field(None, description="GCP Project ID (overrides default)")
     dry_run: bool = Field(False, description="Validate query without executing")
     timeout_ms: Optional[int] = Field(60000, description="Query timeout in milliseconds", ge=1000, le=300000)
     use_query_cache: bool = Field(True, description="Use query cache")
     use_legacy_sql: bool = Field(False, description="Use legacy SQL")
+
+    @field_validator('sql')
+    @classmethod
+    def validate_sql_length(cls, v: str) -> str:
+        """Validate SQL query length"""
+        if len(v) > 10000:
+            raise ValueError("SQL query too long (max 10000 characters)")
+        if len(v.strip()) == 0:
+            raise ValueError("SQL query cannot be empty")
+        return v
+
+    @field_validator('project_id')
+    @classmethod
+    def validate_project_id(cls, v: Optional[str]) -> Optional[str]:
+        """Validate GCP Project ID format"""
+        if v is not None:
+            # GCP project ID must be 6-30 characters, lowercase, alphanumeric, hyphens allowed
+            if not re.match(r'^[a-z0-9-]{6,30}$', v):
+                raise ValueError(
+                    "Invalid GCP project ID format. "
+                    "Must be 6-30 characters, lowercase letters, numbers, and hyphens only."
+                )
+        return v
 
     class Config:
         """Pydantic config"""

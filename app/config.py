@@ -58,14 +58,22 @@ class Settings(BaseSettings):
         description="Allowed CORS origins"
     )
 
-    # Security (Phase 2)
+    # Security Configuration
     api_key_header: str = Field(
         default="X-API-Key",
         description="API key header name"
     )
-    api_key: str = Field(
-        default="",
-        description="API key for authentication (optional in Phase 1)"
+    api_keys: List[str] = Field(
+        default=[],
+        description="List of valid API keys for authentication"
+    )
+    enable_auth: bool = Field(
+        default=True,
+        description="Enable authentication middleware"
+    )
+    rate_limit_per_minute: int = Field(
+        default=60,
+        description="Maximum requests per minute per IP/API key"
     )
 
     # Logging
@@ -88,6 +96,15 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors_origins(cls, v):
         """Parse CORS origins from string or list"""
+        if isinstance(v, str):
+            import json
+            return json.loads(v)
+        return v
+
+    @field_validator("api_keys", mode="before")
+    @classmethod
+    def parse_api_keys(cls, v):
+        """Parse API keys from string or list"""
         if isinstance(v, str):
             import json
             return json.loads(v)

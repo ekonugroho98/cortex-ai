@@ -10,6 +10,8 @@ import sys
 
 from app.config import settings
 from app.api import health, datasets, tables, query, claude_agent
+from app.middleware.security import RateLimitMiddleware, SecurityHeadersMiddleware
+from app.middleware.auth import AuthMiddleware
 
 
 # Configure logger
@@ -82,23 +84,38 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["X-API-Key", "Content-Type", "Authorization"],
 )
+
+# Add security headers middleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Add rate limiting middleware
+app.add_middleware(RateLimitMiddleware, requests_per_minute=settings.rate_limit_per_minute)
+
+# Add authentication middleware if enabled
+if settings.enable_auth and settings.api_keys:
+    logger.info(f"✓ Authentication enabled with {len(settings.api_keys)} API key(s)")
+    app.add_middleware(AuthMiddleware, api_keys=settings.api_keys)
+else:
+    logger.warning("⚠ Authentication disabled - API requests will not be authenticated")
+
 
 
 # Exception handlers
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler"""
-    logger.error(f"Unhandled exception: {exc}")
+    """Global exception handler with sanitized error messages"""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+
+    # Don't expose internal errors to clients
     return JSONResponse(
         status_code=500,
         content={
             "status": "error",
             "error_code": "INTERNAL_SERVER_ERROR",
-            "message": "An unexpected error occurred",
-            "details": {"error": str(exc)}
+            "message": "An unexpected error occurred. Please try again later."
         }
     )
 
@@ -119,7 +136,8 @@ async def root():
     try:
         from app.services.claude_cli_service import claude_cli_service
         claude_status = "available" if claude_cli_service.is_available() else "unavailable"
-    except:
+    except (ImportError, AttributeError, OSError) as e:
+        logger.debug(f"Claude CLI check skipped: {e}")
         pass
 
     return {

@@ -2,7 +2,7 @@
 Claude AI Agent Endpoints
 Natural language to SQL using Claude Code CLI
 """
-from fastapi import APIRouter, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, status, WebSocket, WebSocketDisconnect, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from loguru import logger
@@ -13,7 +13,8 @@ from app.models.bigquery import (
     QueryResponse,
     ErrorResponse
 )
-from app.services.bigquery_service import bigquery_service
+from app.services.bigquery_service import BigQueryService
+from app.dependencies import get_bigquery_service_async
 from app.services.claude_cli_service import claude_cli_service
 
 router = APIRouter(tags=["Claude AI Agent"])
@@ -39,7 +40,10 @@ class AgentResponse(BaseModel):
 
 
 @router.post("/query-agent", response_model=AgentResponse)
-async def query_with_agent(request: AgentRequest):
+async def query_with_agent(
+    request: AgentRequest,
+    bq: BigQueryService = Depends(get_bigquery_service_async)
+) -> AgentResponse:
     """
     Convert natural language to BigQuery SQL using Claude Code CLI
 
@@ -70,6 +74,7 @@ async def query_with_agent(request: AgentRequest):
         # Step 1: Gather BigQuery context
         logger.info("Gathering BigQuery context...")
         bq_context = await _gather_bigquery_context(
+            bq=bq,
             project_id=request.project_id,
             dataset_id=request.dataset_id
         )
@@ -90,10 +95,7 @@ async def query_with_agent(request: AgentRequest):
                 status_code=500,
                 detail={
                     "error_code": "CLAUDE_NO_SQL",
-                    "message": "Claude AI did not generate a SQL query",
-                    "details": {
-                        "raw_output": claude_result["raw_output"][:1000]
-                    }
+                    "message": "Claude AI did not generate a SQL query"
                 }
             )
 
@@ -103,7 +105,7 @@ async def query_with_agent(request: AgentRequest):
         execution_result = None
         if not request.dry_run:
             logger.info("Executing generated SQL...")
-            execution_result = bigquery_service.execute_query(
+            execution_result = await bq.execute_query_async(
                 sql=generated_sql,
                 project_id=request.project_id,
                 dry_run=False
@@ -127,41 +129,38 @@ async def query_with_agent(request: AgentRequest):
         )
 
     except TimeoutError as e:
-        logger.error(f"Claude CLI timeout: {e}")
+        logger.error(f"Claude CLI timeout: {e}", exc_info=True)
         raise HTTPException(
             status_code=504,
             detail={
                 "error_code": "CLAUDE_TIMEOUT",
-                "message": "Claude AI agent timed out",
-                "details": {"error": str(e)}
+                "message": "Claude AI agent timed out"
             }
         )
 
     except RuntimeError as e:
-        logger.error(f"Claude CLI error: {e}")
+        logger.error(f"Claude CLI error: {e}", exc_info=True)
         raise HTTPException(
             status_code=503,
             detail={
                 "error_code": "CLAUDE_UNAVAILABLE",
-                "message": "Claude Code CLI is not available",
-                "details": {"error": str(e)}
+                "message": "Claude Code CLI is not available"
             }
         )
 
     except Exception as e:
-        logger.error(f"Agent request failed: {e}")
+        logger.error(f"Agent request failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
                 "error_code": "AGENT_ERROR",
-                "message": "Agent request failed",
-                "details": {"error": str(e)}
+                "message": "Agent request failed"
             }
         )
 
 
 @router.websocket("/ws/agent")
-async def websocket_agent(websocket: WebSocket):
+async def websocket_agent(websocket: WebSocket) -> None:
     """
     WebSocket endpoint for real-time Claude AI agent interaction
 
@@ -175,7 +174,7 @@ async def websocket_agent(websocket: WebSocket):
 
     try:
         # Initialize session
-        session_context = {
+        session_context: Dict[str, Any] = {
             "project_id": None,
             "dataset_id": None
         }
@@ -199,7 +198,10 @@ async def websocket_agent(websocket: WebSocket):
 
                 try:
                     # Gather context
+                    # Note: WebSocket can't use Depends, so we need to pass bq directly
+                    from app.services.bigquery_service import bigquery_service as bq_global
                     bq_context = await _gather_bigquery_context(
+                        bq=bq_global,
                         project_id=session_context["project_id"],
                         dataset_id=session_context["dataset_id"]
                     )
@@ -246,11 +248,12 @@ async def websocket_agent(websocket: WebSocket):
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected")
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error(f"WebSocket error: {e}", exc_info=True)
         await websocket.close(code=1011, reason=str(e))
 
 
 async def _gather_bigquery_context(
+    bq: BigQueryService,
     project_id: Optional[str] = None,
     dataset_id: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -258,6 +261,7 @@ async def _gather_bigquery_context(
     Gather BigQuery context for Claude CLI
 
     Args:
+        bq: BigQuery service instance
         project_id: GCP Project ID
         dataset_id: Dataset ID to focus on
 
@@ -265,42 +269,46 @@ async def _gather_bigquery_context(
         Dictionary with schema and table information
     """
     try:
-        project = project_id or bigquery_service.project_id
+        project = project_id or bq.project_id
 
         # Get datasets
         if dataset_id:
             # Focus on specific dataset
-            datasets = [bigquery_service.get_dataset(dataset_id)]
+            dataset = await bq.get_dataset_async(dataset_id)
 
             # Get tables for this dataset
-            tables = bigquery_service.list_tables(dataset_id)
+            tables = await bq.list_tables_async(dataset_id)
 
             # Enhance with table details
             for table_info in tables:
                 table_id = table_info["table_id"]
-                table_details = bigquery_service.get_table(dataset_id, table_id)
+                table_details = await bq.get_table_async(dataset_id, table_id)
                 table_info["schema"] = table_details.get("schema", [])
 
+            datasets = [dataset]
             datasets[0]["tables"] = tables
 
         else:
             # Get all datasets (limit to first 10 for performance)
-            all_datasets = bigquery_service.list_datasets()[:10]
+            all_datasets = await bq.list_datasets_async()
+            all_datasets = all_datasets[:10]
             datasets = []
 
             for dataset in all_datasets:
                 ds_id = dataset["dataset_id"]
 
                 # Get tables for each dataset
-                tables = bigquery_service.list_tables(ds_id)[:5]  # Limit tables
+                tables = await bq.list_tables_async(ds_id)
+                tables = tables[:5]  # Limit tables
 
                 # Enhance with schema
                 for table_info in tables:
                     table_id = table_info["table_id"]
                     try:
-                        table_details = bigquery_service.get_table(ds_id, table_id)
+                        table_details = await bq.get_table_async(ds_id, table_id)
                         table_info["schema"] = table_details.get("schema", [])
-                    except:
+                    except (KeyError, AttributeError, Exception) as e:
+                        logger.debug(f"Could not retrieve schema for table {table_id}: {e}")
                         table_info["schema"] = []
 
                 dataset["tables"] = tables
@@ -313,10 +321,10 @@ async def _gather_bigquery_context(
         }
 
     except Exception as e:
-        logger.error(f"Failed to gather BigQuery context: {e}")
+        logger.error(f"Failed to gather BigQuery context: {e}", exc_info=True)
         # Return minimal context
         return {
-            "project_id": project_id or bigquery_service.project_id,
+            "project_id": project_id or bq.project_id,
             "location": "US",
             "datasets": []
         }

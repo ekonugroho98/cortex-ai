@@ -1,25 +1,33 @@
 """
 Query Endpoints
 """
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from loguru import logger
 
 from app.models.bigquery import (
     DirectQueryRequest,
     QueryResponse
 )
-from app.services.bigquery_service import bigquery_service
+from app.services.bigquery_service import BigQueryService
+from app.utils.validators import validate_sql_query
+from app.dependencies import get_bigquery_service_async
 
 router = APIRouter(tags=["Query"])
 
 
 @router.post("/query", response_model=QueryResponse)
-async def execute_query(request: DirectQueryRequest):
+async def execute_query(
+    request: DirectQueryRequest,
+    bq: BigQueryService = Depends(get_bigquery_service_async)
+):
     """
-    Execute direct SQL query to BigQuery
+    Execute direct SQL query to BigQuery (ASYNC)
 
     This endpoint allows you to execute raw SQL queries against BigQuery.
     The query will be validated and executed with the provided parameters.
+
+    Uses async execution to prevent blocking the event loop during
+    potentially long-running BigQuery queries.
 
     - **sql**: SQL query string (required)
     - **dry_run**: If true, validates the query without executing (default: false)
@@ -36,9 +44,27 @@ async def execute_query(request: DirectQueryRequest):
     ```
     """
     try:
-        logger.info(f"Executing query: {request.sql[:100]}...")
+        # Validate SQL query for security
+        is_valid, validation_errors = validate_sql_query(
+            request.sql,
+            allow_only_select=True
+        )
 
-        result = bigquery_service.execute_query(
+        if not is_valid:
+            logger.warning(f"SQL validation failed: {validation_errors}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error_code": "INVALID_QUERY",
+                    "message": "Query validation failed",
+                    "details": {"errors": validation_errors}
+                }
+            )
+
+        logger.info(f"Executing query async: {request.sql[:100]}...")
+
+        # Use async version to prevent blocking
+        result = await bq.execute_query_async(
             sql=request.sql,
             project_id=request.project_id,
             dry_run=request.dry_run,
@@ -58,18 +84,17 @@ async def execute_query(request: DirectQueryRequest):
         return response
 
     except Exception as e:
-        logger.error(f"Query execution failed: {e}")
+        logger.error(f"Query execution failed: {e}", exc_info=True)
 
-        # Parse error for better error messages
+        # Sanitize error messages - don't expose internal details to clients
         error_message = str(e)
 
         if "Not found" in error_message or "does not exist" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={
-                    "error_code": "BQ_TABLE_NOT_FOUND",
-                    "message": "Table or resource not found",
-                    "details": {"error": error_message}
+                    "error_code": "RESOURCE_NOT_FOUND",
+                    "message": "Requested resource was not found"
                 }
             )
 
@@ -77,9 +102,8 @@ async def execute_query(request: DirectQueryRequest):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
-                    "error_code": "BQ_SYNTAX_ERROR",
-                    "message": "SQL syntax error",
-                    "details": {"error": error_message}
+                    "error_code": "SYNTAX_ERROR",
+                    "message": "SQL syntax error in query"
                 }
             )
 
@@ -87,17 +111,16 @@ async def execute_query(request: DirectQueryRequest):
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail={
-                    "error_code": "BQ_QUOTA_EXCEEDED",
-                    "message": "BigQuery quota exceeded",
-                    "details": {"error": error_message}
+                    "error_code": "QUOTA_EXCEEDED",
+                    "message": "Query quota exceeded. Please try again later."
                 }
             )
 
+        # Generic error for all other cases
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "error_code": "BQ_QUERY_ERROR",
-                "message": "Query execution failed",
-                "details": {"error": error_message}
+                "error_code": "QUERY_EXECUTION_FAILED",
+                "message": "Query execution failed. Please check your query and try again."
             }
         )

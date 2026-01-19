@@ -3,6 +3,7 @@ BigQuery Service Layer
 Handles all BigQuery operations
 """
 import time
+import asyncio
 from typing import List, Dict, Any, Optional
 from google.cloud import bigquery
 from google.cloud.bigquery import Dataset, Table, Client, QueryJobConfig
@@ -308,6 +309,121 @@ class BigQueryService:
             logger.error(f"Unexpected error executing query: {e}")
             raise
 
+    # ============== Async Wrapper Methods ==============
+    # These methods wrap synchronous BigQuery calls in async executors
+    # to prevent blocking the event loop in async endpoints
 
-# Global service instance
-bigquery_service = BigQueryService()
+    async def list_datasets_async(self) -> List[Dict[str, Any]]:
+        """
+        Async version of list_datasets
+
+        Returns:
+            List of datasets with metadata
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.list_datasets)
+
+    async def list_tables_async(self, dataset_id: str) -> List[Dict[str, Any]]:
+        """
+        Async version of list_tables
+
+        Args:
+            dataset_id: Dataset ID
+
+        Returns:
+            List of tables with metadata
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.list_tables, dataset_id)
+
+    async def get_table_async(self, dataset_id: str, table_id: str) -> Dict[str, Any]:
+        """
+        Async version of get_table
+
+        Args:
+            dataset_id: Dataset ID
+            table_id: Table ID
+
+        Returns:
+            Table details with schema
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.get_table, dataset_id, table_id)
+
+    async def execute_query_async(
+        self,
+        sql: str,
+        project_id: Optional[str] = None,
+        dry_run: bool = False,
+        timeout_ms: int = 60000,
+        use_query_cache: bool = True,
+        use_legacy_sql: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Async version of execute_query
+
+        This is the CRITICAL method for preventing event loop blocking.
+        BigQuery queries can take seconds to complete, so we run them
+        in a separate thread pool executor.
+
+        Args:
+            sql: SQL query string
+            project_id: Override project ID
+            dry_run: Validate query without executing
+            timeout_ms: Query timeout in milliseconds
+            use_query_cache: Use cached results if available
+            use_legacy_sql: Use legacy SQL syntax
+
+        Returns:
+            Query results with metadata
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.execute_query,
+            sql,
+            project_id,
+            dry_run,
+            timeout_ms,
+            use_query_cache,
+            use_legacy_sql
+        )
+
+    async def test_connection_async(self) -> bool:
+        """
+        Async version of test_connection
+
+        Returns:
+            True if connection successful, False otherwise
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.test_connection)
+
+
+# Lazy global service instance (only created when first accessed)
+class _BigQueryServiceHolder:
+    """Holder for lazy-initialized BigQuery service"""
+    _instance = None
+
+    @property
+    def service(self) -> BigQueryService:
+        """Get or create BigQuery service instance"""
+        if self._instance is None:
+            self._instance = BigQueryService()
+        return self._instance
+
+
+_bigquery_service_holder = _BigQueryServiceHolder()
+
+# Property to access the global service instance
+def bigquery_service() -> BigQueryService:
+    """
+    Get global BigQuery service instance (lazy initialization)
+
+    This allows the module to be imported without requiring GCP credentials
+    during import. The service is only created when first accessed.
+
+    Returns:
+        BigQueryService: Service instance
+    """
+    return _bigquery_service_holder.service
