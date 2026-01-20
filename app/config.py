@@ -91,6 +91,55 @@ class Settings(BaseSettings):
         default="/tmp/claude-workspace",
         description="Path to Claude Code CLI workspace (use /tmp for Cloud Run)"
     )
+    claude_timeout: int = Field(
+        default=300,
+        ge=10,
+        le=600,
+        description="Claude CLI timeout in seconds"
+    )
+
+    # Production Security Settings
+    enable_row_level_security: bool = Field(
+        default=True,
+        description="Enable row-level security enforcement"
+    )
+    max_query_bytes_processed: int = Field(
+        default=10_000_000_000,
+        ge=1_000_000_000,
+        description="Maximum bytes processed per query (default: 10GB)"
+    )
+    enable_query_cost_tracking: bool = Field(
+        default=True,
+        description="Enable query cost tracking and limits"
+    )
+    enable_data_masking: bool = Field(
+        default=True,
+        description="Enable automatic data masking for sensitive columns"
+    )
+    enable_pii_detection: bool = Field(
+        default=True,
+        description="Enable PII/PHI detection in prompts"
+    )
+    sensitive_columns: List[str] = Field(
+        default=[
+            "email", "phone", "ssn", "social_security_number",
+            "credit_card", "password", "secret", "token",
+            "api_key", "access_key", "private_key"
+        ],
+        description="List of sensitive column names for masking"
+    )
+    pii_keywords: List[str] = Field(
+        default=[
+            "password", "ssn", "social security", "credit card",
+            "bank account", "pin", "secret", "private key",
+            "access token", "api key", "personal data"
+        ],
+        description="PII keywords to detect in prompts"
+    )
+    enable_audit_logging: bool = Field(
+        default=True,
+        description="Enable detailed audit logging for compliance"
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod

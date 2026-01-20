@@ -1,0 +1,29 @@
+  Konsep Wrapper dalam Diagram
+
+  ┌─────────────────────────────────────────────────┐
+  │         FastAPI Application                     │
+  │                                                 │
+  │  POST /query-agent                              │
+  │    ↓                                            │
+  │  [Validate Prompt] ← Security Layer 1           │
+  │    ↓                                            │
+  │  [Gather BigQuery Context]                      │
+  │    ↓                                            │
+  │  ┌──────────────────────────────────────────┐  │
+  │  │     ClaudeCLIService (WRAPPER)           │  │
+  │  │                                          │  │
+  │  │  1. Setup Workspace                      │  │
+  │  │  2. Build Prompt                         │  │
+  │  │  3. Execute Subprocess  ────────────┐    │  │
+  │  │  4. Parse Output         │           │    │  │
+  │  │  5. Cleanup Workspace    │           │    │  │
+  │  └──────────────────────────┼───────────┘    │  │
+  │                             ↓                  │  │
+  └─────────────────────────────┼──────────────────┘
+                                ↓
+                      ┌─────────────────────┐
+                      │  Claude Code CLI     │
+                      │  (External Process)  │
+                      │                     │
+                      │  $ claude "..."     │
+                      └─────────────────────┘

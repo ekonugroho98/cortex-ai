@@ -2,11 +2,12 @@
 Claude AI Agent Endpoints
 Natural language to SQL using Claude Code CLI
 """
-from fastapi import APIRouter, HTTPException, status, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, HTTPException, status, WebSocket, WebSocketDisconnect, Depends, Request
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from loguru import logger
 import json
+import time
 
 from app.models.bigquery import (
     DirectQueryRequest,
@@ -18,6 +19,12 @@ from app.dependencies import get_bigquery_service_async
 from app.services.claude_cli_service import claude_cli_service
 from app.utils.prompt_validator import validate_user_prompt
 from app.utils.validators import validate_sql_query
+from app.utils.security import (
+    pii_detector,
+    data_masker,
+    cost_tracker,
+    audit_logger
+)
 
 router = APIRouter(tags=["Claude AI Agent"])
 
@@ -44,6 +51,7 @@ class AgentResponse(BaseModel):
 @router.post("/query-agent", response_model=AgentResponse)
 async def query_with_agent(
     request: AgentRequest,
+    req: Request,
     bq: BigQueryService = Depends(get_bigquery_service_async)
 ) -> AgentResponse:
     """
@@ -54,6 +62,14 @@ async def query_with_agent(
     2. Generate optimized BigQuery SQL query
     3. Execute the query (optional)
     4. Return results
+
+    **Production Security Features:**
+    - PII/PHI detection in prompts
+    - Prompt validation (30+ dangerous patterns)
+    - SQL validation (SELECT only)
+    - Query cost tracking and limits
+    - Data masking for sensitive columns
+    - Enhanced audit logging
 
     Example request:
     ```json
@@ -70,15 +86,48 @@ async def query_with_agent(
     - Generate the appropriate SQL query
     - Execute and return results
     """
+    start_time = time.time()
+    api_key = req.headers.get("X-API-Key", "unknown")
+
     try:
         logger.info(f"Received agent request: {request.prompt[:100]}...")
 
-        # Step 0: Validate prompt for security
+        # Step 0: Check for PII/PHI requests
+        logger.info("Checking for PII/PHI in prompt...")
+        has_pii, pii_keywords = pii_detector.contains_pii_request(request.prompt)
+
+        if has_pii:
+            logger.warning(f"PII/PHI detected in prompt: {pii_keywords}")
+            audit_logger.log_ai_agent_request(
+                prompt=request.prompt,
+                api_key=api_key,
+                generated_sql="",
+                validation_passed=False,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error_code": "PII_DETECTED",
+                    "message": "Cannot query sensitive data (PII/PHI) via AI agent. "
+                              "Please use direct SQL query with proper authorization.",
+                    "details": {"detected_keywords": pii_keywords}
+                }
+            )
+
+        # Step 1: Validate prompt for security
         logger.info("Validating prompt for security...")
         is_prompt_valid, prompt_errors = validate_user_prompt(request.prompt)
 
         if not is_prompt_valid:
             logger.warning(f"Prompt validation failed: {prompt_errors}")
+            audit_logger.log_ai_agent_request(
+                prompt=request.prompt,
+                api_key=api_key,
+                generated_sql="",
+                validation_passed=False,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
@@ -88,7 +137,7 @@ async def query_with_agent(
                 }
             )
 
-        # Step 1: Gather BigQuery context
+        # Step 2: Gather BigQuery context
         logger.info("Gathering BigQuery context...")
         bq_context = await _gather_bigquery_context(
             bq=bq,
@@ -96,7 +145,7 @@ async def query_with_agent(
             dataset_id=request.dataset_id
         )
 
-        # Step 2: Execute prompt via Claude CLI
+        # Step 3: Execute prompt via Claude CLI
         logger.info("Executing prompt via Claude CLI...")
         claude_result = await claude_cli_service.execute_prompt(
             prompt=request.prompt,
@@ -104,10 +153,17 @@ async def query_with_agent(
             timeout=request.timeout
         )
 
-        # Step 3: Extract generated SQL
+        # Step 4: Extract generated SQL
         generated_sql = claude_result["parsed_content"].get("sql_query")
 
         if not generated_sql:
+            audit_logger.log_ai_agent_request(
+                prompt=request.prompt,
+                api_key=api_key,
+                generated_sql="",
+                validation_passed=False,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
             raise HTTPException(
                 status_code=500,
                 detail={
@@ -118,12 +174,19 @@ async def query_with_agent(
 
         logger.info(f"Generated SQL: {generated_sql[:200]}...")
 
-        # Step 3.5: Validate generated SQL for security
+        # Step 5: Validate generated SQL for security
         logger.info("Validating generated SQL...")
         is_sql_valid, sql_errors = validate_sql_query(generated_sql, allow_only_select=True)
 
         if not is_sql_valid:
             logger.warning(f"Generated SQL validation failed: {sql_errors}")
+            audit_logger.log_ai_agent_request(
+                prompt=request.prompt,
+                api_key=api_key,
+                generated_sql=generated_sql,
+                validation_passed=False,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
             raise HTTPException(
                 status_code=500,
                 detail={
@@ -133,7 +196,7 @@ async def query_with_agent(
                 }
             )
 
-        # Step 4: Execute SQL if not dry run
+        # Step 6: Execute SQL if not dry run
         execution_result = None
         if not request.dry_run:
             logger.info("Executing generated SQL...")
@@ -142,10 +205,70 @@ async def query_with_agent(
                 project_id=request.project_id,
                 dry_run=False
             )
+
+            # Check cost limits
+            total_bytes = execution_result.get("metadata", {}).get("total_bytes_processed", 0)
+            within_limits, cost_error = cost_tracker.check_cost_limits(total_bytes, api_key)
+
+            if not within_limits:
+                audit_logger.log_query(
+                    sql=generated_sql,
+                    api_key=api_key,
+                    user_context={"api_key": api_key},
+                    execution_time_ms=int((time.time() - start_time) * 1000),
+                    row_count=0,
+                    bytes_processed=total_bytes,
+                    success=False,
+                    error=cost_error
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail={
+                        "error_code": "COST_LIMIT_EXCEEDED",
+                        "message": cost_error
+                    }
+                )
+
+            # Apply data masking
+            masked_data = data_masker.mask_data(
+                execution_result["data"],
+                execution_result.get("columns", [])
+            )
+            execution_result["data"] = masked_data
+
+            # Log query cost
+            duration_ms = int((time.time() - start_time) * 1000)
+            cost_tracker.log_query_cost(
+                sql=generated_sql,
+                total_bytes_processed=total_bytes,
+                api_key=api_key,
+                duration_ms=duration_ms
+            )
+
+            # Audit log
+            audit_logger.log_query(
+                sql=generated_sql,
+                api_key=api_key,
+                user_context={"api_key": api_key, "method": "ai_agent"},
+                execution_time_ms=duration_ms,
+                row_count=execution_result.get("row_count", 0),
+                bytes_processed=total_bytes,
+                success=True
+            )
         else:
             logger.info("Dry run - skipping execution")
 
-        # Step 5: Return response
+        # Step 7: Log AI agent request
+        duration_ms = int((time.time() - start_time) * 1000)
+        audit_logger.log_ai_agent_request(
+            prompt=request.prompt,
+            api_key=api_key,
+            generated_sql=generated_sql,
+            validation_passed=True,
+            execution_time_ms=duration_ms
+        )
+
+        # Step 8: Return response
         return AgentResponse(
             status="success",
             prompt=request.prompt,
@@ -155,13 +278,26 @@ async def query_with_agent(
                 "model": "glm-4.7",
                 "method": "claude-code-cli",
                 "workspace": claude_result["workspace"],
-                "raw_output_length": len(claude_result["raw_output"])
+                "raw_output_length": len(claude_result["raw_output"]),
+                "pii_check": "passed",
+                "prompt_validation": "passed",
+                "sql_validation": "passed",
+                "cost_tracking": "enabled" if execution_result else "skipped",
+                "data_masking": "applied" if execution_result else "skipped"
             },
             reasoning=claude_result["parsed_content"].get("text")[:500]
         )
 
     except TimeoutError as e:
         logger.error(f"Claude CLI timeout: {e}", exc_info=True)
+        duration_ms = int((time.time() - start_time) * 1000)
+        audit_logger.log_ai_agent_request(
+            prompt=request.prompt,
+            api_key=api_key,
+            generated_sql="",
+            validation_passed=False,
+            execution_time_ms=duration_ms
+        )
         raise HTTPException(
             status_code=504,
             detail={
@@ -172,6 +308,14 @@ async def query_with_agent(
 
     except RuntimeError as e:
         logger.error(f"Claude CLI error: {e}", exc_info=True)
+        duration_ms = int((time.time() - start_time) * 1000)
+        audit_logger.log_ai_agent_request(
+            prompt=request.prompt,
+            api_key=api_key,
+            generated_sql="",
+            validation_passed=False,
+            execution_time_ms=duration_ms
+        )
         raise HTTPException(
             status_code=503,
             detail={
@@ -182,6 +326,14 @@ async def query_with_agent(
 
     except Exception as e:
         logger.error(f"Agent request failed: {e}", exc_info=True)
+        duration_ms = int((time.time() - start_time) * 1000)
+        audit_logger.log_ai_agent_request(
+            prompt=request.prompt,
+            api_key=api_key,
+            generated_sql="",
+            validation_passed=False,
+            execution_time_ms=duration_ms
+        )
         raise HTTPException(
             status_code=500,
             detail={
