@@ -16,6 +16,8 @@ from app.models.bigquery import (
 from app.services.bigquery_service import BigQueryService
 from app.dependencies import get_bigquery_service_async
 from app.services.claude_cli_service import claude_cli_service
+from app.utils.prompt_validator import validate_user_prompt
+from app.utils.validators import validate_sql_query
 
 router = APIRouter(tags=["Claude AI Agent"])
 
@@ -71,6 +73,21 @@ async def query_with_agent(
     try:
         logger.info(f"Received agent request: {request.prompt[:100]}...")
 
+        # Step 0: Validate prompt for security
+        logger.info("Validating prompt for security...")
+        is_prompt_valid, prompt_errors = validate_user_prompt(request.prompt)
+
+        if not is_prompt_valid:
+            logger.warning(f"Prompt validation failed: {prompt_errors}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error_code": "INVALID_PROMPT",
+                    "message": "Prompt validation failed - request appears to be unsafe or not data-related",
+                    "details": {"errors": prompt_errors}
+                }
+            )
+
         # Step 1: Gather BigQuery context
         logger.info("Gathering BigQuery context...")
         bq_context = await _gather_bigquery_context(
@@ -100,6 +117,21 @@ async def query_with_agent(
             )
 
         logger.info(f"Generated SQL: {generated_sql[:200]}...")
+
+        # Step 3.5: Validate generated SQL for security
+        logger.info("Validating generated SQL...")
+        is_sql_valid, sql_errors = validate_sql_query(generated_sql, allow_only_select=True)
+
+        if not is_sql_valid:
+            logger.warning(f"Generated SQL validation failed: {sql_errors}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error_code": "CLAUDE_GENERATED_INVALID_SQL",
+                    "message": "Claude AI generated invalid SQL query",
+                    "details": {"errors": sql_errors, "sql": generated_sql[:500]}
+                }
+            )
 
         # Step 4: Execute SQL if not dry run
         execution_result = None
